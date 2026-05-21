@@ -41,7 +41,14 @@ export const executeInSandbox = async ({
     throw new Error(`Unsupported language: ${language}`);
   }
 
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "esamz-sandbox-"));
+  const safeTimeoutMs = Math.min(60000, Math.max(1000, Number(timeoutMs) || 20000));
+
+  let tempDir;
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "esamz-sandbox-"));
+  } catch (error) {
+    throw new Error(`Failed to create sandbox directory for code execution: ${error.message}`);
+  }
   await writeFiles(tempDir, files);
 
   const dockerArgs = [
@@ -73,7 +80,7 @@ export const executeInSandbox = async ({
       if (!settled) {
         child.kill("SIGKILL");
       }
-    }, timeoutMs);
+    }, safeTimeoutMs);
 
     child.stdout.on("data", (chunk) => onStdout?.(chunk.toString()));
     child.stderr.on("data", (chunk) => onStderr?.(chunk.toString()));

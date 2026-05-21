@@ -17,6 +17,12 @@ Always use full file content when writing files.
 When previous attempts failed, fix based on terminal errors.`;
 
 const extractJson = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Continue with relaxed parsing
+  }
+
   const fenced = text.match(/```json\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1] || text;
   const start = candidate.indexOf("{");

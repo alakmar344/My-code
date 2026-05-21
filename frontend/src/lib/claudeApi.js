@@ -1,4 +1,4 @@
-const parseNdjsonStream = async (response, onEvent, signal) => {
+const parseNDJSONStream = async (response, onEvent, signal) => {
   if (!response.ok || !response.body) {
     const errorText = await response.text();
     throw new Error(errorText || `Request failed: ${response.status}`);
@@ -53,7 +53,7 @@ export const streamAgentResponse = async ({
     })
   });
 
-  await parseNdjsonStream(response, (event) => {
+  await parseNDJSONStream(response, (event) => {
     if (event.type === "error") throw new Error(event.data);
     if (event.type === "token") onToken?.(event.data);
   });
@@ -69,7 +69,7 @@ export const executeCode = async ({ backendUrl, language, command, files, onEven
 
   let exitCode = 1;
 
-  await parseNdjsonStream(response, (event) => {
+  await parseNDJSONStream(response, (event) => {
     onEvent?.(event);
     if (event.type === "exit") exitCode = event.exitCode ?? 1;
     if (event.type === "error") throw new Error(event.data);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AgentLoop from "./components/AgentLoop";
 import ChatPanel from "./components/ChatPanel";
 import CodeEditor from "./components/CodeEditor";
@@ -176,7 +176,7 @@ export default function App() {
     });
   };
 
-  let touchStartY = 0;
+  const touchStartYRef = useRef(0);
 
   return (
     <AgentLoop
@@ -234,10 +234,10 @@ export default function App() {
               terminalExpanded ? "h-[55dvh]" : "h-24"
             }`}
             onTouchStart={(event) => {
-              touchStartY = event.touches[0].clientY;
+              touchStartYRef.current = event.touches[0].clientY;
             }}
             onTouchEnd={(event) => {
-              const diff = touchStartY - event.changedTouches[0].clientY;
+              const diff = touchStartYRef.current - event.changedTouches[0].clientY;
               if (diff > 24) setTerminalExpanded(true);
               if (diff < -24) setTerminalExpanded(false);
             }}
