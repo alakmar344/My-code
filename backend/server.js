@@ -25,14 +25,13 @@ app.get("/health", (_req, res) => {
 app.post("/api/execute", async (req, res) => {
   prepareStreamResponse(res);
 
-  const { language, command, files, timeoutMs } = req.body || {};
+  const { language, command, files } = req.body || {};
 
   try {
     const result = await executeInSandbox({
       language,
       command,
       files,
-      timeoutMs,
       onStdout: (data) => writeNdjson(res, { type: "stdout", data }),
       onStderr: (data) => writeNdjson(res, { type: "stderr", data })
     });

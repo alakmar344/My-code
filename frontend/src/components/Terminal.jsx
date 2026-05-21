@@ -15,7 +15,7 @@ export default function TerminalPanel({ output, clearSignal }) {
 
     const term = new Terminal({
       convertEol: true,
-      fontSize: 13,
+      fontSize: 14,
       theme: {
         background: "#020617",
         foreground: "#e2e8f0"

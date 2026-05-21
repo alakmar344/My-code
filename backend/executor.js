@@ -32,7 +32,6 @@ export const executeInSandbox = async ({
   language,
   command,
   files,
-  timeoutMs = 20000,
   onStdout,
   onStderr
 }) => {
@@ -41,7 +40,7 @@ export const executeInSandbox = async ({
     throw new Error(`Unsupported language: ${language}`);
   }
 
-  const safeTimeoutMs = Math.min(60000, Math.max(1000, Number(timeoutMs) || 20000));
+  const fixedTimeoutMs = 20000;
 
   let tempDir;
   try {
@@ -75,12 +74,15 @@ export const executeInSandbox = async ({
   return new Promise((resolve, reject) => {
     const child = spawn("docker", dockerArgs, { stdio: ["ignore", "pipe", "pipe"] });
     let settled = false;
+    const cleanup = async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    };
 
     const timeout = setTimeout(() => {
       if (!settled) {
         child.kill("SIGKILL");
       }
-    }, safeTimeoutMs);
+    }, fixedTimeoutMs);
 
     child.stdout.on("data", (chunk) => onStdout?.(chunk.toString()));
     child.stderr.on("data", (chunk) => onStderr?.(chunk.toString()));
@@ -88,14 +90,14 @@ export const executeInSandbox = async ({
     child.on("error", async (error) => {
       clearTimeout(timeout);
       settled = true;
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await cleanup();
       reject(error);
     });
 
     child.on("close", async (exitCode, signal) => {
       clearTimeout(timeout);
       settled = true;
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await cleanup();
       resolve({ exitCode: exitCode ?? 1, signal });
     });
   });
