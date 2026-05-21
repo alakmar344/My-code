@@ -5,7 +5,7 @@ import CodeEditor from "./components/CodeEditor";
 import FileTree from "./components/FileTree";
 import Terminal from "./components/Terminal";
 import { loadSession, saveSession } from "./lib/contextManager";
-import { executeCode } from "./lib/claudeApi";
+import { executeCode, searchWeb } from "./lib/claudeApi";
 import { createVirtualFS, inferLanguageFromPath } from "./lib/virtualFS";
 
 const defaultSession = {
@@ -18,6 +18,7 @@ const defaultSession = {
   ],
   selectedFile: "/index.js",
   apiKey: "",
+  serperApiKey: "",
   model: "gemini-2.5-flash",
   backendUrl: "http://localhost:8080"
 };
@@ -38,6 +39,16 @@ function SettingsModal({ open, settings, onChange, onClose }) {
               onChange={(event) => onChange({ ...settings, apiKey: event.target.value })}
               className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2"
               placeholder="AIza..."
+            />
+          </label>
+          <label className="block text-sm">
+            Serper API Key (for /search)
+            <input
+              type="password"
+              value={settings.serperApiKey}
+              onChange={(event) => onChange({ ...settings, serperApiKey: event.target.value })}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 p-2"
+              placeholder="serper_..."
             />
           </label>
           <label className="block text-sm">
@@ -85,11 +96,13 @@ export default function App() {
   const [clearSignal, setClearSignal] = useState(0);
   const [settings, setSettings] = useState({
     apiKey: stored?.apiKey || defaultSession.apiKey,
+    serperApiKey: stored?.serperApiKey || defaultSession.serperApiKey,
     model: stored?.model || defaultSession.model,
     backendUrl: stored?.backendUrl || defaultSession.backendUrl
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalExpanded, setTerminalExpanded] = useState(false);
+  const [terminalCommand, setTerminalCommand] = useState("");
 
   const refreshTree = () => setTree(fsApi.listTree());
 
@@ -176,6 +189,128 @@ export default function App() {
     });
   };
 
+  const handleChatCommand = async (input) => {
+    const trimmed = input.trim();
+    if (!trimmed.startsWith("/")) return false;
+
+    if (trimmed === "/help") {
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content:
+            "Slash commands:\n• /search <query> → web search with Serper\n• /help → show this help\n\nTerminal commands:\n• /help\n• /search <query>\n• /curl <https://url>\n• /open <https://url>"
+        }
+      ]);
+      return true;
+    }
+
+    if (trimmed.startsWith("/search ")) {
+      const query = trimmed.slice(8).trim();
+      if (!query) {
+        setMessages((current) => [...current, { role: "assistant", content: "Usage: /search <query>" }]);
+        return true;
+      }
+
+      setMessages((current) => [...current, { role: "assistant", content: `Searching web for: "${query}"...` }]);
+      try {
+        const result = await searchWeb({
+          backendUrl: settings.backendUrl,
+          serperApiKey: settings.serperApiKey,
+          query
+        });
+
+        const lines = (result.organic || []).map((item, index) => {
+          return `${index + 1}. ${item.title || "Untitled"}\n${item.link || ""}\n${item.snippet || ""}`;
+        });
+
+        const summary = lines.length
+          ? lines.join("\n\n")
+          : "No organic results found. Try a broader query.";
+
+        setMessages((current) => [...current, { role: "assistant", content: `🔎 Search results:\n\n${summary}` }]);
+      } catch (error) {
+        setMessages((current) => [
+          ...current,
+          { role: "assistant", content: `Search failed: ${error.message}. Check Serper key in Settings.` }
+        ]);
+      }
+      return true;
+    }
+
+    setMessages((current) => [
+      ...current,
+      { role: "assistant", content: "Unknown slash command. Use /help for available commands." }
+    ]);
+    return true;
+  };
+
+  const runTerminalBrowserCommand = async (rawInput) => {
+    const command = rawInput.trim();
+    if (!command) return;
+
+    appendTerminal(`\n$ ${command}\n`);
+
+    if (command === "/help") {
+      appendTerminal(
+        "Terminal commands:\n  /help\n  /search <query>\n  /curl <https://url>\n  /open <https://url>\n"
+      );
+      return;
+    }
+
+    if (command.startsWith("/search ")) {
+      const query = command.slice(8).trim();
+      if (!query) {
+        appendTerminal("Usage: /search <query>\n");
+        return;
+      }
+      try {
+        const result = await searchWeb({
+          backendUrl: settings.backendUrl,
+          serperApiKey: settings.serperApiKey,
+          query
+        });
+        const lines = (result.organic || []).map(
+          (item, index) => `${index + 1}. ${item.title || "Untitled"}\n${item.link || ""}\n${item.snippet || ""}\n`
+        );
+        appendTerminal(lines.length ? `${lines.join("\n")}\n` : "No results found.\n");
+      } catch (error) {
+        appendTerminal(`Search failed: ${error.message}\n`);
+      }
+      return;
+    }
+
+    if (command.startsWith("/open ")) {
+      const url = command.slice(6).trim();
+      try {
+        const parsed = new URL(url);
+        window.open(parsed.toString(), "_blank", "noopener,noreferrer");
+        appendTerminal(`Opened ${parsed.toString()} in a new tab.\n`);
+      } catch {
+        appendTerminal("Invalid URL. Example: /open https://example.com\n");
+      }
+      return;
+    }
+
+    if (command.startsWith("/curl ")) {
+      const url = command.slice(6).trim();
+      try {
+        const parsed = new URL(url);
+        const response = await fetch(parsed.toString(), { method: "GET" });
+        const text = await response.text();
+        const preview = text.replace(/\s+/g, " ").slice(0, 1200);
+        appendTerminal(`HTTP ${response.status} ${response.statusText}\n${preview}\n`);
+      } catch (error) {
+        appendTerminal(
+          `Browser fetch failed: ${error.message}\nTip: some sites block cross-origin fetch in browsers.\n`
+        );
+      }
+      return;
+    }
+
+    appendTerminal("Unknown terminal command. Use /help\n");
+  };
+
   const touchStartYRef = useRef(0);
 
   return (
@@ -194,14 +329,19 @@ export default function App() {
           <header className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2">
             <div>
               <h1 className="text-lg font-bold">eSAMz Code</h1>
-              <p className="text-xs text-slate-400">AI coding agent for web + mobile</p>
+              <p className="text-xs text-slate-400">Professional AI coding copilot for web + mobile</p>
             </div>
-            <button
-              className="rounded bg-slate-800 px-3 py-2 text-sm"
-              onClick={() => setSettingsOpen(true)}
-            >
-              Settings
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="hidden rounded-full border border-emerald-700 bg-emerald-900/40 px-2 py-1 text-[10px] text-emerald-200 md:inline">
+                Live Agent
+              </span>
+              <button
+                className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Settings
+              </button>
+            </div>
           </header>
 
           <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 md:grid-cols-[220px_1fr_340px]">
@@ -225,7 +365,17 @@ export default function App() {
             </section>
 
             <section className="min-h-0">
-              <ChatPanel messages={messages} isRunning={isRunning} status={status} onSend={runTask} />
+              <ChatPanel
+                messages={messages}
+                isRunning={isRunning}
+                status={status}
+                onSend={async (input) => {
+                  const consumed = await handleChatCommand(input);
+                  if (!consumed) {
+                    runTask(input);
+                  }
+                }}
+              />
             </section>
           </main>
 
@@ -243,7 +393,34 @@ export default function App() {
             }}
           >
             <div className="mb-2 text-xs text-slate-300">Terminal</div>
-            <div className="h-[calc(100%-1.5rem)]">
+            <div className="flex h-[calc(100%-1.5rem)] flex-col gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-950 p-1.5">
+                <input
+                  value={terminalCommand}
+                  onChange={(event) => setTerminalCommand(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      const cmd = terminalCommand;
+                      setTerminalCommand("");
+                      runTerminalBrowserCommand(cmd);
+                    }
+                  }}
+                  placeholder="Terminal command: /help, /search, /curl, /open"
+                  className="w-full bg-transparent px-2 py-1 text-xs outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cmd = terminalCommand;
+                    setTerminalCommand("");
+                    runTerminalBrowserCommand(cmd);
+                  }}
+                  className="rounded bg-indigo-600 px-2 py-1 text-xs font-medium"
+                >
+                  Enter
+                </button>
+              </div>
               <Terminal output={terminalLog} clearSignal={clearSignal} />
             </div>
           </section>

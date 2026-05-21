@@ -4,18 +4,55 @@ import { executeInSandbox } from "./executor.js";
 
 const app = express();
 const port = process.env.PORT || 8080;
+const SUPPORTED_LANGUAGES = new Set(["javascript", "python", "bash"]);
+const MAX_QUERY_LENGTH = 400;
+const MAX_MESSAGES = 120;
+const MAX_FILES = 300;
 
+app.disable("x-powered-by");
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
 const writeNdjson = (res, payload) => {
-  res.write(`${JSON.stringify(payload)}\n`);
+  if (res.writableEnded) return;
+  try {
+    res.write(`${JSON.stringify(payload)}\n`);
+  } catch {
+    // no-op: stream might already be closed
+  }
 };
 
 const prepareStreamResponse = (res) => {
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+};
+
+const ensureNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
+
+const normalizeFiles = (files) => {
+  if (!files || typeof files !== "object" || Array.isArray(files)) return {};
+  const entries = Object.entries(files).slice(0, MAX_FILES);
+  return Object.fromEntries(
+    entries.map(([key, value]) => [String(key), typeof value === "string" ? value : String(value ?? "")])
+  );
+};
+
+const normalizeMessages = (messages) => {
+  if (!Array.isArray(messages)) return [];
+  return messages.slice(-MAX_MESSAGES).filter((message) => {
+    return message && ensureNonEmptyString(message.role) && ensureNonEmptyString(message.content);
+  });
+};
+
+const withTimeout = async (promiseFactory, timeoutMs = 25000) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await promiseFactory(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 app.get("/health", (_req, res) => {
@@ -26,12 +63,22 @@ app.post("/api/execute", async (req, res) => {
   prepareStreamResponse(res);
 
   const { language, command, files } = req.body || {};
+  const safeLanguage = String(language || "").toLowerCase();
 
   try {
+    if (!SUPPORTED_LANGUAGES.has(safeLanguage)) {
+      writeNdjson(res, {
+        type: "error",
+        data: "Unsupported language. Use one of: javascript, python, bash."
+      });
+      writeNdjson(res, { type: "exit", exitCode: 1, signal: null });
+      return res.end();
+    }
+
     const result = await executeInSandbox({
-      language,
-      command,
-      files,
+      language: safeLanguage,
+      command: ensureNonEmptyString(command) ? command : "",
+      files: normalizeFiles(files),
       onStdout: (data) => writeNdjson(res, { type: "stdout", data }),
       onStderr: (data) => writeNdjson(res, { type: "stderr", data })
     });
@@ -60,39 +107,39 @@ const toGeminiContents = (messages = []) =>
 app.post("/api/agent/stream", async (req, res) => {
   prepareStreamResponse(res);
 
-  const {
-    apiKey,
-    model = "gemini-2.5-flash",
-    systemPrompt,
-    messages,
-    maxOutputTokens = 4096,
-    temperature = 0.2
-  } = req.body || {};
+  const { apiKey, model = "gemini-2.5-flash", systemPrompt, messages } = req.body || {};
+  const maxOutputTokens = Math.min(8192, Math.max(256, Number(req.body?.maxOutputTokens) || 4096));
+  const temperature = Math.min(1, Math.max(0, Number(req.body?.temperature) || 0.2));
 
-  if (!apiKey) {
+  if (!ensureNonEmptyString(apiKey)) {
     writeNdjson(res, { type: "error", data: "Missing API key" });
     return res.end();
   }
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model
-      )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: systemPrompt
-            ? { parts: [{ text: String(systemPrompt) }] }
-            : undefined,
-          contents: toGeminiContents(messages),
-          generationConfig: {
-            temperature,
-            maxOutputTokens
+    const response = await withTimeout(
+      (signal) =>
+        fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+            model
+          )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal,
+            body: JSON.stringify({
+              system_instruction: ensureNonEmptyString(systemPrompt)
+                ? { parts: [{ text: String(systemPrompt) }] }
+                : undefined,
+              contents: toGeminiContents(normalizeMessages(messages)),
+              generationConfig: {
+                temperature,
+                maxOutputTokens
+              }
+            })
           }
-        })
-      }
+        ),
+      30000
     );
 
     if (!response.ok || !response.body) {
@@ -151,6 +198,74 @@ app.post("/api/agent/stream", async (req, res) => {
     writeNdjson(res, { type: "error", data: error.message || "Agent request failed" });
     res.end();
   }
+});
+
+app.post("/api/web/search", async (req, res) => {
+  const { serperApiKey, query } = req.body || {};
+
+  if (!ensureNonEmptyString(serperApiKey)) {
+    return res.status(400).json({ error: "Missing Serper API key" });
+  }
+  if (!ensureNonEmptyString(query)) {
+    return res.status(400).json({ error: "Missing search query" });
+  }
+  if (query.length > MAX_QUERY_LENGTH) {
+    return res
+      .status(400)
+      .json({ error: `Query is too long. Keep it under ${MAX_QUERY_LENGTH} characters.` });
+  }
+
+  try {
+    const response = await withTimeout(
+      (signal) =>
+        fetch("https://google.serper.dev/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-KEY": serperApiKey
+          },
+          signal,
+          body: JSON.stringify({ q: query, num: 5, autocorrect: true })
+        }),
+      15000
+    );
+
+    const text = await response.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { raw: text };
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: "Serper request failed",
+        details: payload
+      });
+    }
+
+    return res.json({
+      query,
+      organic: Array.isArray(payload?.organic) ? payload.organic.slice(0, 5) : [],
+      knowledgeGraph: payload?.knowledgeGraph || null,
+      answerBox: payload?.answerBox || null
+    });
+  } catch (error) {
+    return res.status(502).json({
+      error: "Web search failed",
+      details: error.message || "Unknown upstream error"
+    });
+  }
+});
+
+app.use((err, _req, res, _next) => {
+  const message = err?.type === "entity.parse.failed" ? "Invalid JSON payload" : "Server error";
+  res.status(err?.status || 500).json({ error: message });
+});
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
 app.listen(port, () => {

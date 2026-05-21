@@ -77,3 +77,19 @@ export const executeCode = async ({ backendUrl, language, command, files, onEven
 
   return exitCode;
 };
+
+export const searchWeb = async ({ backendUrl, serperApiKey, query, signal }) => {
+  const response = await fetch(`${backendUrl}/api/web/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({ serperApiKey, query })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Search failed: ${response.status}`);
+  }
+
+  return response.json();
+};

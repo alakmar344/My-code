@@ -77,12 +77,22 @@ export const executeInSandbox = async ({
   return new Promise((resolve, reject) => {
     const child = spawn("docker", dockerArgs, { stdio: ["ignore", "pipe", "pipe"] });
     let settled = false;
+    let timedOut = false;
     const cleanup = async () => {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup failures so execution result is still returned
+      }
     };
 
     const timeout = setTimeout(() => {
       if (!settled) {
+        timedOut = true;
+        onStderr?.(
+          `Execution timed out after ${EXECUTION_TIMEOUT_MS}ms. ` +
+            "Try a smaller task or optimize the command.\n"
+        );
         child.kill("SIGKILL");
       }
     }, EXECUTION_TIMEOUT_MS);
@@ -101,7 +111,7 @@ export const executeInSandbox = async ({
       clearTimeout(timeout);
       settled = true;
       await cleanup();
-      resolve({ exitCode: exitCode ?? 1, signal });
+      resolve({ exitCode: timedOut ? 124 : exitCode ?? 1, signal });
     });
   });
 };

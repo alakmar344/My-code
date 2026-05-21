@@ -1,15 +1,48 @@
 # eSAMz Code
 
-Full-stack AI coding agent for web browsers and mobile phones.
+**eSAMz Code** is a mobile-ready, browser-first AI coding workspace built for fast shipping.  
+It combines an autonomous coding agent, sandboxed execution, and a professional IDE-style UI.
 
-## Features
+## Why eSAMz Code
 
-- Gemini-powered autonomous coding loop (plan → execute → observe → retry)
-- Auto self-correction with up to 5 retries and visible retry status
-- In-browser terminal UI with xterm.js and streaming execution output
-- Virtual in-memory file system with create/edit/delete/rename
-- Mobile-first React + Tailwind layout with bottom-sheet terminal and floating actions
-- Session context persistence in localStorage with context trimming near 100k tokens
+- ⚡ **Autonomous build loop**: plan → execute → observe → retry automatically
+- 🧠 **Self-correcting agent** with visible retry status and error-aware context
+- 📱 **Professional mobile UX** with responsive editor, chat, file tree, and terminal
+- 🔎 **Web-powered commands** with Serper search (`/search`)
+- 🌐 **User-device internet terminal commands** (`/curl`, `/open`) for live research workflows
+- 🔒 **Sandboxed execution** via Docker with strict runtime limits
+
+## Core Capabilities
+
+### AI Agent
+- Gemini-powered streaming responses
+- Multi-turn context memory with local session persistence
+- Automatic retries (up to 5 attempts) when execution fails
+
+### Professional Frontend
+- React + Tailwind + CodeMirror + xterm.js
+- Touch-friendly layout from phone screens to desktop
+- Command-aware chat and terminal UX
+
+### Safer, More Resilient Backend
+- Input validation and guarded limits for execution/search endpoints
+- Stream-safe NDJSON writes
+- Upstream timeout control for external AI/search calls
+- Graceful JSON parsing and centralized API error responses
+
+## Commands
+
+### Chat slash commands
+- `/help` — show available commands
+- `/search <query>` — run web search through Serper API
+
+### Terminal commands (browser internet from user device)
+- `/help`
+- `/search <query>`
+- `/curl <https://url>` — fetch URL content using browser network
+- `/open <https://url>` — open URL in a new tab
+
+> Note: Browser internet commands depend on CORS policies of target websites.
 
 ## Project Structure
 
@@ -35,55 +68,43 @@ Full-stack AI coding agent for web browsers and mobile phones.
 └── README.md
 ```
 
-## Backend Setup
+## Quick Start
 
+### 1) Backend
 ```bash
 cd backend
 npm install
-npm run start
+npm start
 ```
-
 Backend default URL: `http://localhost:8080`
 
-### Sandbox execution
-
-The backend executes code via Docker with restricted resources and disabled network:
-
-- `--network none`
-- CPU/memory/pids limits
-- isolated temp workspace mount
-
-## Frontend Setup
-
+### 2) Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-
 Frontend default URL: `http://localhost:5173`
 
-## Using the App
+## Settings You Must Provide
 
-1. Open **Settings** and enter your Gemini API key (never hardcoded).
-2. Send a natural language coding task in chat.
-3. The agent will:
-   - plan and write files
-   - execute code automatically
-   - observe output/errors
-   - retry with self-correction up to 5 attempts
-4. Continue iterating in chat.
+From the Settings modal in the app:
+- Gemini API key (for AI generation)
+- Serper API key (for `/search`)
+- Backend URL (default: `http://localhost:8080`)
 
-## Deploy
+No API key is hardcoded in source.
 
-- Frontend: Vercel
-- Backend: Railway/Render (Docker required for sandbox execution)
-  - The backend must be able to run nested Docker commands for isolated execution.
-  - If using host Docker daemon access, mount `/var/run/docker.sock` and restrict access carefully (security-sensitive).
-  - Prefer a dedicated isolated runner/VM for this backend service.
+## Deployment
 
-## Security Notes
+- **Frontend**: Vercel
+- **Backend**: Railway/Render (Docker-capable environment required)
+  - Backend must support Docker runtime for sandbox execution.
+  - If mounting `/var/run/docker.sock`, treat it as security-sensitive infrastructure.
+  - Use isolated infrastructure for production reliability and safety.
 
-- API key is user-supplied in browser settings.
-- No server-side session persistence by default.
-- Code execution is isolated in Docker containers.
+## Security & Reliability Notes
+
+- Code execution runs in isolated containers with CPU/memory/pid limits.
+- Backend applies request validation and timeout protection for external calls.
+- Session context is stored client-side in localStorage (no default server-side session DB).
