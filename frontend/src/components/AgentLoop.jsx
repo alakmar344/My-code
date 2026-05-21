@@ -16,6 +16,12 @@ If no file updates are needed, return an empty files array.
 Always use full file content when writing files.
 When previous attempts failed, fix based on terminal errors.`;
 const MAX_AGENT_RETRIES = 5;
+const formatRetryMessage = (prefix, attempt) => {
+  if (attempt < MAX_AGENT_RETRIES) {
+    return `${prefix} → 🔄 Retrying (attempt ${attempt + 1}/${MAX_AGENT_RETRIES})...`;
+  }
+  return `${prefix} → ⛔ Retry limit reached.`;
+};
 
 const extractJson = (text) => {
   try {
@@ -145,10 +151,7 @@ export function useAgentLoop({
               return;
             }
 
-            const retryMessage = `❌ Error detected → 🔄 Retrying (attempt ${Math.min(
-              attempt + 1,
-              MAX_AGENT_RETRIES
-            )}/${MAX_AGENT_RETRIES})...`;
+            const retryMessage = formatRetryMessage("❌ Error detected", attempt);
             errorHistory.push({ attempt, rawResponse, terminalTail: terminalLog.slice(-4000) });
             setMessages((current) => [...current, { role: "assistant", content: retryMessage }]);
             setStatus(retryMessage);
@@ -159,10 +162,7 @@ export function useAgentLoop({
               return;
             }
 
-            const retryMessage = `❌ Error detected: ${error.message} → 🔄 Retrying (attempt ${Math.min(
-              attempt + 1,
-              MAX_AGENT_RETRIES
-            )}/${MAX_AGENT_RETRIES})...`;
+            const retryMessage = formatRetryMessage(`❌ Error detected: ${error.message}`, attempt);
             errorHistory.push({ attempt, error: error.message, terminalTail: terminalLog.slice(-4000) });
             setMessages((current) => [...current, { role: "assistant", content: retryMessage }]);
             setStatus(retryMessage);
