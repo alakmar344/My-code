@@ -15,6 +15,7 @@ Return valid JSON only, without markdown code fences:
 If no file updates are needed, return an empty files array.
 Always use full file content when writing files.
 When previous attempts failed, fix based on terminal errors.`;
+const MAX_AGENT_RETRIES = 5;
 
 const extractJson = (text) => {
   try {
@@ -69,9 +70,9 @@ export function useAgentLoop({
         const errorHistory = [];
         setIsRunning(true);
 
-        for (let attempt = 1; attempt <= 5; attempt += 1) {
+        for (let attempt = 1; attempt <= MAX_AGENT_RETRIES; attempt += 1) {
           abortRef.current = new AbortController();
-          setStatus(`Planning and coding (attempt ${attempt}/5)`);
+          setStatus(`Planning and coding (attempt ${attempt}/${MAX_AGENT_RETRIES})`);
 
           const attemptContext = buildAgentContext({
             messages: trimContext(newMessages, 100000),
@@ -119,7 +120,7 @@ export function useAgentLoop({
             const language = parsed.language || "javascript";
             const command = parsed.command || "";
 
-            setStatus(`Executing code (attempt ${attempt}/5)`);
+            setStatus(`Executing code (attempt ${attempt}/${MAX_AGENT_RETRIES})`);
             appendTerminal(`\n$ ${command || "(no command)"}\n`);
 
             const exitCode = await executeCode({
@@ -146,8 +147,8 @@ export function useAgentLoop({
 
             const retryMessage = `❌ Error detected → 🔄 Retrying (attempt ${Math.min(
               attempt + 1,
-              5
-            )}/5)...`;
+              MAX_AGENT_RETRIES
+            )}/${MAX_AGENT_RETRIES})...`;
             errorHistory.push({ attempt, rawResponse, terminalTail: terminalLog.slice(-4000) });
             setMessages((current) => [...current, { role: "assistant", content: retryMessage }]);
             setStatus(retryMessage);
@@ -160,8 +161,8 @@ export function useAgentLoop({
 
             const retryMessage = `❌ Error detected: ${error.message} → 🔄 Retrying (attempt ${Math.min(
               attempt + 1,
-              5
-            )}/5)...`;
+              MAX_AGENT_RETRIES
+            )}/${MAX_AGENT_RETRIES})...`;
             errorHistory.push({ attempt, error: error.message, terminalTail: terminalLog.slice(-4000) });
             setMessages((current) => [...current, { role: "assistant", content: retryMessage }]);
             setStatus(retryMessage);
@@ -172,7 +173,7 @@ export function useAgentLoop({
           ...current,
           {
             role: "assistant",
-            content: "I reached the retry limit (5/5). Please refine the task or provide guidance."
+            content: `I reached the retry limit (${MAX_AGENT_RETRIES}/${MAX_AGENT_RETRIES}). Please refine the task or provide guidance.`
           }
         ]);
         setStatus("Retry limit reached");

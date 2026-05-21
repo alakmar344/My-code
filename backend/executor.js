@@ -17,7 +17,11 @@ const RUNNERS = {
     fallbackCommand: "bash main.sh"
   }
 };
-const EXECUTION_TIMEOUT_MS = 20000;
+const DEFAULT_EXECUTION_TIMEOUT_MS = 20000;
+const EXECUTION_TIMEOUT_MS = Math.min(
+  60000,
+  Math.max(1000, Number(process.env.SANDBOX_TIMEOUT_MS) || DEFAULT_EXECUTION_TIMEOUT_MS)
+);
 
 const writeFiles = async (baseDir, files) => {
   const entries = Object.entries(files || {});
