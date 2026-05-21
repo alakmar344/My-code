@@ -17,6 +17,7 @@ const RUNNERS = {
     fallbackCommand: "bash main.sh"
   }
 };
+const EXECUTION_TIMEOUT_MS = 20000;
 
 const writeFiles = async (baseDir, files) => {
   const entries = Object.entries(files || {});
@@ -39,8 +40,6 @@ export const executeInSandbox = async ({
   if (!runner) {
     throw new Error(`Unsupported language: ${language}`);
   }
-
-  const fixedTimeoutMs = 20000;
 
   let tempDir;
   try {
@@ -82,7 +81,7 @@ export const executeInSandbox = async ({
       if (!settled) {
         child.kill("SIGKILL");
       }
-    }, fixedTimeoutMs);
+    }, EXECUTION_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk) => onStdout?.(chunk.toString()));
     child.stderr.on("data", (chunk) => onStderr?.(chunk.toString()));

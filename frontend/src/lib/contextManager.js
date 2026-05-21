@@ -1,10 +1,11 @@
 const SESSION_KEY = "esamz_code_session_v1";
+const DEFAULT_MAX_TOKENS = 100000;
 
 export const estimateTokens = (text) => Math.ceil((text || "").length / 4);
 
 const stringifyMessage = (message) => `${message.role}: ${message.content}`;
 
-export const trimContext = (messages, maxTokens = 100000) => {
+export const trimContext = (messages, maxTokens = DEFAULT_MAX_TOKENS) => {
   let current = [...messages];
   let tokenCount = estimateTokens(current.map(stringifyMessage).join("\n"));
 

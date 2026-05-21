@@ -78,6 +78,9 @@ Frontend default URL: `http://localhost:5173`
 
 - Frontend: Vercel
 - Backend: Railway/Render (Docker required for sandbox execution)
+  - The backend must be able to run nested Docker commands for isolated execution.
+  - If using host Docker daemon access, mount `/var/run/docker.sock` and restrict access carefully (security-sensitive).
+  - Prefer a dedicated isolated runner/VM for this backend service.
 
 ## Security Notes
 
