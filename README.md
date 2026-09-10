@@ -3,6 +3,8 @@
 **eSAMz Code** is a mobile-ready, browser-first AI coding workspace built for fast shipping.  
 It combines an autonomous coding agent, sandboxed execution, and a professional IDE-style UI.
 
+Part of the **eSAMz** product line — [esamz.me](https://esamz.me).
+
 ## Why eSAMz Code
 
 - ⚡ **Autonomous build loop**: plan → execute → observe → retry automatically
@@ -29,6 +31,32 @@ It combines an autonomous coding agent, sandboxed execution, and a professional 
 - Stream-safe NDJSON writes
 - Upstream timeout control for external AI/search calls
 - Graceful JSON parsing and centralized API error responses
+
+## Architecture — how the pieces fit
+
+```
+ Browser (React + Vite)
+ ├── AgentLoop.jsx      plan → execute → observe → retry (up to 5 attempts, visible status)
+ ├── claudeApi.js       streaming AI calls (NDJSON over fetch)
+ ├── contextManager.js  multi-turn memory, capped + persisted client-side
+ ├── virtualFS.js       client-side file system the agent "works in"
+ └── Terminal / CodeEditor / FileTree / ChatPanel  (xterm.js + CodeMirror)
+          │  HTTP + NDJSON stream
+          ▼
+ Node/Express backend (server.js, 273 lines)
+ ├── input validation    language allowlist (javascript/python/bash),
+ │                       MAX_QUERY_LENGTH=400, MAX_MESSAGES=120, MAX_FILES=300
+ ├── stream-safe writes  NDJSON with writableEnded guard
+ └── executor.js         spawns docker with CPU/memory/pid limits (117 lines)
+          │
+          ▼
+ Docker sandbox          untrusted code runs here, never on the host
+```
+
+The design principle: **the agent may write and run arbitrary code, so nothing
+it touches is trusted.** Files live in a virtual FS client-side; execution goes
+through a validating Express layer into a resource-capped container; results
+stream back as NDJSON so the UI can render progress incrementally.
 
 ## Commands
 
